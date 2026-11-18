@@ -1,50 +1,65 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
+import { View, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedText } from './ThemedText';
 import { Button } from './Button';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { Spacing } from '@/theme';
 
 export interface EmptyStateProps {
-  icon?: keyof typeof Ionicons.glyphMap;
+  icon?: string;
   title: string;
   description?: string;
   actionTitle?: string;
   onAction?: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function EmptyState({
-  icon = 'clipboard-outline',
+  icon = 'calendar-outline',
   title,
   description,
   actionTitle,
   onAction,
   style,
 }: EmptyStateProps) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useTheme();
 
   return (
     <View style={[styles.container, style]}>
-      <View style={[styles.iconCircle, { backgroundColor: colors.surfaceVariant }]}>
-        <Ionicons name={icon} size={40} color={colors.primary} />
+      <View
+        style={[
+          styles.iconCircle,
+          {
+            backgroundColor: isDark
+              ? 'rgba(129, 140, 248, 0.12)'
+              : colors.accentSoft,
+            borderColor: isDark
+              ? 'rgba(129, 140, 248, 0.25)'
+              : 'rgba(79, 70, 229, 0.15)',
+          },
+        ]}
+      >
+        <Ionicons name={icon as any} size={36} color={colors.accent} />
       </View>
-      <ThemedText variant="h3" style={styles.title}>
+
+      <ThemedText variant="heading" style={styles.title}>
         {title}
       </ThemedText>
+
       {description && (
         <ThemedText variant="body" secondary style={styles.description}>
           {description}
         </ThemedText>
       )}
+
       {actionTitle && onAction && (
         <Button
           title={actionTitle}
           onPress={onAction}
           variant="primary"
-          size="sm"
-          style={styles.action}
+          size="md"
+          style={styles.actionBtn}
         />
       )}
     </View>
@@ -55,26 +70,30 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: Spacing.xxl,
+    paddingVertical: Spacing.huge,
+    paddingHorizontal: Spacing.xl,
   },
   iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.base,
   },
   title: {
     textAlign: 'center',
+    fontWeight: '700',
     marginBottom: Spacing.xs,
   },
   description: {
     textAlign: 'center',
     maxWidth: 280,
+    lineHeight: 21,
+    marginBottom: Spacing.lg,
   },
-  action: {
-    marginTop: Spacing.lg,
+  actionBtn: {
+    minWidth: 140,
   },
 });
-

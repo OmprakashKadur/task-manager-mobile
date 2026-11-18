@@ -1,25 +1,33 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   ScrollView,
   StyleSheet,
   Pressable,
-  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { format } from 'date-fns';
+import {
+  format,
+  startOfWeek,
+  addDays,
+  parseISO,
+} from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import {
   ThemedText,
   ProgressRing,
   EmptyState,
-  Badge,
+  Card,
+  Chip,
+  TextField,
+  SectionHeader,
+  ConfettiOverlay,
 } from '@/components/ui';
 import { TaskItem } from '@/components/TaskItem';
 import { ScopeModal } from '@/components/ScopeModal';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { useTaskStore } from '@/store/useTaskStore';
 import { useCategoryStore } from '@/store/useCategoryStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -30,32 +38,47 @@ import {
 } from '@/services/taskService';
 import { deleteTask, getTaskById, insertTask } from '@/db/tasks';
 import { TaskOccurrence, RecurrenceEditScope, TaskTimePeriod } from '@/types';
-import { Spacing, BorderRadius, Shadows } from '@/theme';
+import { Spacing, BorderRadius } from '@/theme';
 import { getTodayLocalDate } from '@/services/recurrence/dateUtils';
 import { resyncNotificationSchedule } from '@/services/notifications';
 
 export default function TodayScreen() {
-  const { colors } = useAppTheme();
+  const { colors, isDark, shadows } = useTheme();
   const userName = useSettingsStore((s) => s.settings.user_name);
   const hapticsEnabled = useSettingsStore((s) => s.settings.haptics_enabled);
+  const weekStartDay = useSettingsStore((s) => s.settings.week_start_day); // 1 = Monday, 0 = Sunday
   const categories = useCategoryStore((s) => s.categories);
 
   const refreshKey = useTaskStore((s) => s.refreshKey);
   const triggerRefresh = useTaskStore((s) => s.triggerRefresh);
   const showUndo = useTaskStore((s) => s.showUndo);
 
+  const todayStr = useMemo(() => getTodayLocalDate(), []);
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(todayStr);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedPriority, setSelectedPriority] = useState<string | null>(null);
-  const [showCompleted, setShowCompleted] = useState(true);
+
+  // Section collapse states
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    overdue: false,
+    morning: false,
+    afternoon: false,
+    evening: false,
+    anytime: false,
+  });
 
   // Scope modal state
   const [scopeModalVisible, setScopeModalVisible] = useState(false);
   const [targetOccurrence, setTargetOccurrence] = useState<TaskOccurrence | null>(null);
 
-  const todayStr = useMemo(() => getTodayLocalDate(), []);
+  // Celebration state
+  const [showCelebration, setShowCelebration] = useState(false);
 
-  // Greeting calculation
+  const isViewingToday = selectedDateStr === todayStr;
+
+  // Personalized Greeting
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     let timeGreeting = 'Good morning';
@@ -67,15 +90,45 @@ export default function TodayScreen() {
     return userName ? `${timeGreeting}, ${userName}` : timeGreeting;
   }, [userName]);
 
-  const formattedDate = useMemo(() => {
-    return format(new Date(), 'EEEE, d MMMM');
-  }, []);
+  // Formatted date string
+  const formattedHeaderDate = useMemo(() => {
+    try {
+      const d = parseISO(selectedDateStr);
+      return format(d, 'EEEE, d MMMM');
+    } catch {
+      return format(new Date(), 'EEEE, d MMMM');
+    }
+  }, [selectedDateStr]);
 
-  // Load occurrences for today
-  const allOccurrences = useMemo(() => {
-    return loadOccurrencesForDate(todayStr);
+  // Generate 7-day horizontal strip for the current week
+  const weekDays = useMemo(() => {
+    const today = new Date();
+    const start = startOfWeek(today, { weekStartsOn: (weekStartDay as any) === 0 ? 0 : 1 });
+    return Array.from({ length: 7 }, (_, i) => {
+      const dayDate = addDays(start, i);
+      const dayStr = format(dayDate, 'yyyy-MM-dd');
+      const dayOccurrences = loadOccurrencesForDate(dayStr);
+      return {
+        date: dayDate,
+        dateStr: dayStr,
+        dayName: format(dayDate, 'EEE'),
+        dayNumber: format(dayDate, 'd'),
+        isToday: dayStr === todayStr,
+        isSelected: dayStr === selectedDateStr,
+        hasTasks: dayOccurrences.length > 0,
+        allDone:
+          dayOccurrences.length > 0 &&
+          dayOccurrences.every((o) => o.status === 'done'),
+      };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todayStr, refreshKey]);
+  }, [weekStartDay, todayStr, selectedDateStr, refreshKey]);
+
+  // Load occurrences for selected date
+  const allOccurrences = useMemo(() => {
+    return loadOccurrencesForDate(selectedDateStr);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDateStr, refreshKey]);
 
   // Filtered occurrences
   const filteredOccurrences = useMemo(() => {
@@ -95,18 +148,31 @@ export default function TodayScreen() {
         return false;
       }
 
-      if (!showCompleted && occ.status === 'done') {
-        return false;
-      }
-
       return true;
     });
-  }, [allOccurrences, searchQuery, selectedCategory, selectedPriority, showCompleted]);
+  }, [allOccurrences, searchQuery, selectedCategory, selectedPriority]);
 
   // Metrics
   const totalTasks = allOccurrences.length;
   const completedTasks = allOccurrences.filter((o) => o.status === 'done').length;
   const progressRatio = totalTasks > 0 ? completedTasks / totalTasks : 0;
+  const allCompleted = totalTasks > 0 && completedTasks === totalTasks;
+
+  // Trigger celebration micro-animation when all tasks are finished
+  useEffect(() => {
+    if (allCompleted && isViewingToday) {
+      const startTimer = setTimeout(() => {
+        setShowCelebration(true);
+      }, 50);
+      const stopTimer = setTimeout(() => {
+        setShowCelebration(false);
+      }, 3050);
+      return () => {
+        clearTimeout(startTimer);
+        clearTimeout(stopTimer);
+      };
+    }
+  }, [allCompleted, isViewingToday]);
 
   // Groupings
   const overdueTasks = useMemo(() => {
@@ -184,188 +250,287 @@ export default function TodayScreen() {
     }
   };
 
-  const handleFabPress = () => {
-    if (hapticsEnabled) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    }
-    router.push('/task/new');
+  const toggleSectionCollapse = (key: string) => {
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const renderSection = (title: string, icon: any, tasks: TaskOccurrence[]) => {
+  const renderTaskGroup = (
+    title: string,
+    key: string,
+    icon: string,
+    tasks: TaskOccurrence[]
+  ) => {
     if (tasks.length === 0) return null;
+    const isCollapsed = Boolean(collapsedSections[key]);
 
     return (
-      <View style={styles.sectionContainer}>
-        <View style={styles.sectionHeader}>
-          <Ionicons name={icon} size={18} color={colors.primary} />
-          <ThemedText variant="h3" style={styles.sectionTitle}>
-            {title}
-          </ThemedText>
-          <ThemedText variant="caption" secondary style={styles.sectionCount}>
-            ({tasks.length})
-          </ThemedText>
-        </View>
+      <View style={styles.groupContainer}>
+        <SectionHeader
+          title={title}
+          icon={icon}
+          count={tasks.length}
+          collapsible
+          collapsed={isCollapsed}
+          onToggleCollapse={() => toggleSectionCollapse(key)}
+        />
 
-        {tasks.map((occ) => (
-          <TaskItem
-            key={occ.id}
-            occurrence={occ}
-            onToggleComplete={handleToggleComplete}
-            onPress={handleTaskPress}
-            onDelete={handleDeletePress}
-          />
-        ))}
+        {!isCollapsed &&
+          tasks.map((occ) => (
+            <TaskItem
+              key={occ.id}
+              occurrence={occ}
+              onToggleComplete={handleToggleComplete}
+              onPress={handleTaskPress}
+              onDelete={handleDeletePress}
+            />
+          ))}
       </View>
     );
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <ConfettiOverlay visible={showCelebration} />
+
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header with Greeting & Progress */}
+        {/* Top Greeting Header */}
         <View style={styles.header}>
-          <View style={styles.greetingContainer}>
-            <ThemedText variant="caption" secondary style={{ textTransform: 'uppercase' }}>
-              {formattedDate}
+          <View style={styles.greetingArea}>
+            <ThemedText variant="micro" secondary style={styles.dateLabel}>
+              {formattedHeaderDate}
             </ThemedText>
-            <ThemedText variant="h1" numberOfLines={1} style={{ marginTop: 2 }}>
+            <ThemedText variant="display" style={styles.greetingTitle}>
               {greeting}
             </ThemedText>
-            <ThemedText variant="body" secondary style={{ marginTop: 2 }}>
+            <ThemedText variant="body" secondary style={styles.motivatingText}>
               {totalTasks === 0
-                ? 'No tasks scheduled today.'
-                : completedTasks === totalTasks
-                ? 'All tasks completed today! 🎉'
-                : `${totalTasks - completedTasks} tasks remaining.`}
+                ? 'No tasks scheduled — enjoy your free time!'
+                : allCompleted
+                ? 'All tasks completed — stellar work today! 🌟'
+                : `You have ${totalTasks - completedTasks} of ${totalTasks} tasks remaining.`}
             </ThemedText>
           </View>
-
-          <ProgressRing
-            size={76}
-            strokeWidth={8}
-            progress={progressRatio}
-            completed={completedTasks}
-            total={totalTasks}
-            color={colors.primary}
-          />
         </View>
 
-        {/* Search & Filter Bar */}
-        <View style={styles.filterSection}>
-          <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Ionicons name="search" size={18} color={colors.textMuted} />
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search today's tasks..."
-              placeholderTextColor={colors.textMuted}
-              style={[styles.searchInput, { color: colors.text }]}
-            />
-            {searchQuery.length > 0 && (
-              <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+        {/* Hero Progress Card */}
+        {totalTasks > 0 && (
+          <Card style={styles.heroCard} elevated>
+            <View style={styles.heroRow}>
+              <View style={styles.heroStats}>
+                <ThemedText variant="micro" secondary style={styles.heroSubtitle}>
+                  DAILY PROGRESS
+                </ThemedText>
+                <ThemedText variant="title" tabular style={styles.heroTitle}>
+                  {completedTasks} of {totalTasks} done
+                </ThemedText>
+                <ThemedText variant="caption" secondary style={styles.heroMessage}>
+                  {allCompleted
+                    ? '100% finished — you reached your daily goal!'
+                    : `${Math.round(progressRatio * 100)}% complete. Keep the momentum going!`}
+                </ThemedText>
+              </View>
+
+              <ProgressRing
+                size={88}
+                strokeWidth={9}
+                progress={progressRatio}
+                completed={completedTasks}
+                total={totalTasks}
+                color={colors.accent}
+              />
+            </View>
+          </Card>
+        )}
+
+        {/* 7-Day Current Week Horizontal Strip */}
+        <View style={styles.weekStripWrapper}>
+          <View style={styles.weekStripHeader}>
+            <ThemedText variant="caption" secondary style={{ fontWeight: '600' }}>
+              THIS WEEK
+            </ThemedText>
+            {!isViewingToday && (
+              <Pressable
+                onPress={() => setSelectedDateStr(todayStr)}
+                hitSlop={8}
+                style={styles.todayReturnBtn}
+              >
+                <ThemedText
+                  variant="micro"
+                  style={{ color: colors.accent, fontWeight: '700' }}
+                >
+                  Return to Today
+                </ThemedText>
               </Pressable>
             )}
           </View>
 
-          {/* Filter Pills */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillScroll}
-          >
-            {/* Category filters */}
-            {categories.map((cat) => {
-              const active = selectedCategory === cat.id;
+          <View style={styles.weekStrip}>
+            {weekDays.map((item) => {
+              const isSelected = item.isSelected;
               return (
                 <Pressable
-                  key={cat.id}
-                  onPress={() => setSelectedCategory(active ? null : cat.id)}
+                  key={item.dateStr}
+                  onPress={() => {
+                    if (hapticsEnabled) {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    }
+                    setSelectedDateStr(item.dateStr);
+                  }}
                   style={[
-                    styles.pill,
+                    styles.weekDayPill,
                     {
-                      backgroundColor: active ? cat.color : colors.surface,
-                      borderColor: active ? cat.color : colors.border,
+                      backgroundColor: isSelected
+                        ? colors.accent
+                        : item.isToday
+                        ? colors.accentSoft
+                        : isDark
+                        ? colors.surface
+                        : colors.surface,
+                      borderColor: isSelected
+                        ? colors.accent
+                        : item.isToday
+                        ? colors.accent
+                        : isDark
+                        ? colors.border
+                        : colors.borderSubtle,
                     },
                   ]}
                 >
                   <ThemedText
-                    variant="caption"
-                    style={{
-                      color: active ? '#FFFFFF' : colors.text,
-                      fontWeight: active ? '700' : '500',
-                    }}
+                    variant="micro"
+                    style={[
+                      styles.weekDayName,
+                      {
+                        color: isSelected
+                          ? '#FFFFFF'
+                          : item.isToday
+                          ? colors.accent
+                          : colors.textSecondary,
+                        fontWeight: isSelected || item.isToday ? '700' : '500',
+                      },
+                    ]}
                   >
-                    {cat.name}
+                    {item.dayName}
                   </ThemedText>
+                  <ThemedText
+                    variant="subheading"
+                    tabular
+                    style={[
+                      styles.weekDayNumber,
+                      {
+                        color: isSelected
+                          ? '#FFFFFF'
+                          : item.isToday
+                          ? colors.accent
+                          : colors.textPrimary,
+                        fontWeight: isSelected || item.isToday ? '800' : '600',
+                      },
+                    ]}
+                  >
+                    {item.dayNumber}
+                  </ThemedText>
+
+                  {/* Task Indicator Dot */}
+                  <View
+                    style={[
+                      styles.taskDot,
+                      {
+                        backgroundColor: isSelected
+                          ? '#FFFFFF'
+                          : item.allDone
+                          ? colors.success
+                          : item.hasTasks
+                          ? colors.accent
+                          : 'transparent',
+                      },
+                    ]}
+                  />
                 </Pressable>
               );
             })}
+          </View>
+        </View>
 
-            {/* High priority filter */}
-            <Pressable
-              onPress={() => setSelectedPriority(selectedPriority === 'high' ? null : 'high')}
-              style={[
-                styles.pill,
-                {
-                  backgroundColor: selectedPriority === 'high' ? colors.danger : colors.surface,
-                  borderColor: selectedPriority === 'high' ? colors.danger : colors.border,
-                },
-              ]}
-            >
-              <ThemedText
-                variant="caption"
-                style={{
-                  color: selectedPriority === 'high' ? '#FFFFFF' : colors.text,
-                  fontWeight: selectedPriority === 'high' ? '700' : '500',
-                }}
-              >
-                High Priority
-              </ThemedText>
-            </Pressable>
+        {/* Search & Filter Section */}
+        <View style={styles.searchSection}>
+          <TextField
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search tasks..."
+            leadingIcon={
+              <Ionicons name="search" size={17} color={colors.textTertiary} />
+            }
+            clearable
+            containerStyle={styles.searchInputWrapper}
+          />
 
-            {/* Completed Toggle */}
-            <Pressable
-              onPress={() => setShowCompleted(!showCompleted)}
-              style={[
-                styles.pill,
-                {
-                  backgroundColor: !showCompleted ? colors.primary : colors.surface,
-                  borderColor: !showCompleted ? colors.primary : colors.border,
-                },
-              ]}
-            >
-              <ThemedText
-                variant="caption"
-                style={{
-                  color: !showCompleted ? '#FFFFFF' : colors.textSecondary,
-                  fontWeight: !showCompleted ? '700' : '500',
-                }}
-              >
-                {showCompleted ? 'Hide Done' : 'Showing Incomplete'}
-              </ThemedText>
-            </Pressable>
+          {/* Quick Filter Chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterChipsRow}
+          >
+            {/* Category chips */}
+            {categories.map((cat) => {
+              const active = selectedCategory === cat.id;
+              return (
+                <Chip
+                  key={cat.id}
+                  label={cat.name}
+                  selected={active}
+                  color={cat.color}
+                  onPress={() => setSelectedCategory(active ? null : cat.id)}
+                  size="sm"
+                  style={styles.filterChip}
+                />
+              );
+            })}
+
+            {/* High Priority chip */}
+            <Chip
+              label="High Priority"
+              selected={selectedPriority === 'high'}
+              color={colors.danger}
+              onPress={() =>
+                setSelectedPriority(selectedPriority === 'high' ? null : 'high')
+              }
+              size="sm"
+              style={styles.filterChip}
+            />
           </ScrollView>
         </View>
 
-        {/* Overdue Section */}
+        {/* Overdue Tasks Section (distinct, calm rose highlight) */}
         {overdueTasks.length > 0 && (
-          <View style={[styles.overdueContainer, { backgroundColor: colors.dangerLight, borderColor: colors.danger }]}>
-            <View style={styles.overdueHeader}>
-              <Ionicons name="warning" size={18} color={colors.danger} />
-              <ThemedText variant="h3" style={{ color: colors.danger, marginLeft: Spacing.xs }}>
-                Overdue Tasks
+          <View style={styles.overdueSection}>
+            <View
+              style={[
+                styles.overdueBanner,
+                {
+                  backgroundColor: colors.dangerSoft,
+                  borderColor: isDark ? 'rgba(248,113,113,0.3)' : 'rgba(225,29,72,0.2)',
+                },
+              ]}
+            >
+              <View style={styles.overdueHeader}>
+                <Ionicons name="alert-circle" size={18} color={colors.danger} />
+                <ThemedText
+                  variant="subheading"
+                  style={[styles.overdueTitle, { color: colors.danger }]}
+                >
+                  Overdue ({overdueTasks.length})
+                </ThemedText>
+              </View>
+              <ThemedText
+                variant="caption"
+                style={{ color: colors.textSecondary, marginTop: 2 }}
+              >
+                These tasks were scheduled before today and remain pending.
               </ThemedText>
-              <Badge
-                label={`${overdueTasks.length}`}
-                color={colors.danger}
-                backgroundColor="#FFFFFF"
-                style={{ marginLeft: 'auto' }}
-              />
             </View>
 
             {overdueTasks.map((occ) => (
@@ -380,51 +545,61 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {/* Grouped Day Sections */}
-        {renderSection('Morning', 'sunny-outline', groupedTasks.morning)}
-        {renderSection('Afternoon', 'partly-sunny-outline', groupedTasks.afternoon)}
-        {renderSection('Evening', 'moon-outline', groupedTasks.evening)}
-        {renderSection('Anytime', 'time-outline', groupedTasks.anytime)}
-
-        {/* Empty state */}
-        {filteredOccurrences.length === 0 && (
+        {/* Grouped Regular Tasks */}
+        {totalTasks === 0 ? (
           <EmptyState
-            icon="checkmark-done-circle-outline"
-            title="All Clear!"
-            description={
-              allOccurrences.length === 0
-                ? "You don't have any tasks scheduled for today. Tap the button below to add one."
-                : 'No tasks match your active filters.'
-            }
-            actionTitle={allOccurrences.length === 0 ? 'Add Today’s First Task' : 'Reset Filters'}
-            onAction={
-              allOccurrences.length === 0
-                ? handleFabPress
-                : () => {
-                    setSearchQuery('');
-                    setSelectedCategory(null);
-                    setSelectedPriority(null);
-                    setShowCompleted(true);
-                  }
-            }
-            style={{ marginTop: Spacing.xl }}
+            icon="calendar-outline"
+            title="No Tasks for this Day"
+            description="Tap the button below to add your first time-block, habit, or todo."
+            actionTitle="Create Task"
+            onAction={() => router.push('/task/new')}
+            style={styles.emptyContainer}
           />
+        ) : filteredOccurrences.length === 0 ? (
+          <EmptyState
+            icon="search-outline"
+            title="No Matching Tasks"
+            description="Try clearing your search query or filters to see all tasks."
+            actionTitle="Reset Filters"
+            onAction={() => {
+              setSearchQuery('');
+              setSelectedCategory(null);
+              setSelectedPriority(null);
+            }}
+            style={styles.emptyContainer}
+          />
+        ) : (
+          <View style={styles.taskLists}>
+            {renderTaskGroup('Morning', 'morning', 'sunny-outline', groupedTasks.morning)}
+            {renderTaskGroup('Afternoon', 'afternoon', 'partly-sunny-outline', groupedTasks.afternoon)}
+            {renderTaskGroup('Evening', 'evening', 'moon-outline', groupedTasks.evening)}
+            {renderTaskGroup('Anytime', 'anytime', 'hourglass-outline', groupedTasks.anytime)}
+          </View>
         )}
       </ScrollView>
 
-      {/* Floating Action Button (FAB) */}
+      {/* Modern Floating Action Button (FAB) */}
       <Pressable
-        onPress={handleFabPress}
-        style={({ pressed }) => [
+        onPress={() => {
+          if (hapticsEnabled) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          }
+          router.push('/task/new');
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Add new task"
+        style={[
           styles.fab,
-          { backgroundColor: colors.primary, transform: [{ scale: pressed ? 0.94 : 1 }] },
-          Shadows.lg,
+          {
+            backgroundColor: colors.accent,
+          },
+          shadows.lg,
         ]}
       >
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </Pressable>
 
-      {/* Scope modal */}
+      {/* Recurrence Scope Modal */}
       <ScopeModal
         visible={scopeModalVisible}
         actionType="delete"
@@ -443,82 +618,142 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: Spacing.lg,
-    paddingBottom: 90, // Room for FAB
+    paddingHorizontal: Spacing.base,
+    paddingTop: Spacing.md,
+    paddingBottom: 110,
   },
   header: {
+    marginBottom: Spacing.md,
+  },
+  greetingArea: {
+    flex: 1,
+  },
+  dateLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  greetingTitle: {
+    fontWeight: '800',
+  },
+  motivatingText: {
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  heroCard: {
+    marginBottom: Spacing.base,
+    padding: Spacing.base,
+  },
+  heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: Spacing.lg,
   },
-  greetingContainer: {
+  heroStats: {
     flex: 1,
-    marginRight: Spacing.md,
+    paddingRight: Spacing.md,
   },
-  filterSection: {
-    marginBottom: Spacing.lg,
+  heroSubtitle: {
+    letterSpacing: 0.8,
+    fontWeight: '700',
+    marginBottom: 4,
   },
-  searchBar: {
+  heroTitle: {
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  heroMessage: {
+    lineHeight: 18,
+  },
+  weekStripWrapper: {
+    marginBottom: Spacing.base,
+  },
+  weekStripHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    height: 42,
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
+    paddingHorizontal: 2,
+  },
+  todayReturnBtn: {
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+  },
+  weekStrip: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  weekDayPill: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
+  weekDayName: {
+    fontSize: 10,
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  weekDayNumber: {
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  taskDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  searchSection: {
+    marginBottom: Spacing.sm,
+  },
+  searchInputWrapper: {
+    marginBottom: Spacing.xs,
+  },
+  filterChipsRow: {
+    paddingVertical: Spacing.xs,
+    gap: Spacing.xs,
+  },
+  filterChip: {
+    marginRight: 6,
+  },
+  overdueSection: {
+    marginBottom: Spacing.base,
+  },
+  overdueBanner: {
+    padding: Spacing.md,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
     marginBottom: Spacing.sm,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    marginLeft: Spacing.sm,
-  },
-  pillScroll: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-    paddingVertical: 2,
-  },
-  pill: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-  },
-  overdueContainer: {
-    padding: Spacing.md,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    marginBottom: Spacing.lg,
-  },
   overdueHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  overdueTitle: {
+    fontWeight: '700',
+  },
+  taskLists: {
+    marginTop: Spacing.xs,
+  },
+  groupContainer: {
     marginBottom: Spacing.md,
   },
-  sectionContainer: {
-    marginBottom: Spacing.lg,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  sectionTitle: {
-    fontWeight: '700',
-    marginLeft: Spacing.xs,
-  },
-  sectionCount: {
-    marginLeft: Spacing.xs,
+  emptyContainer: {
+    marginTop: Spacing.xl,
   },
   fab: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 28,
     right: 20,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 8,
+    zIndex: 999,
   },
 });

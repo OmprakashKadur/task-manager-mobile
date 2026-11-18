@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { Appearance, ColorSchemeName } from 'react-native';
 import { ThemeMode } from '@/types';
-import { lightColors, darkColors, ThemeColors } from '@/theme/colors';
+import { lightColors, darkColors } from '@/theme/colors';
+import { ThemeColors } from '@/theme/types';
 import { getSetting, setSetting } from '@/db/settings';
 
 type ColorSchemeType = ColorSchemeName | null | undefined;

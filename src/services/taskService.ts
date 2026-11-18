@@ -123,7 +123,8 @@ export function editRecurringTaskWithScope(
   task: Task,
   rule: RecurrenceRule,
   occurrenceDate: string,
-  updates: Partial<Task>
+  updates: Partial<Task>,
+  updatedRule?: Partial<RecurrenceRule>
 ): void {
   const decision = resolveRecurringEdit(scope, task, rule, occurrenceDate, updates);
 
@@ -132,10 +133,18 @@ export function editRecurringTaskWithScope(
   } else if (decision.type === 'split_recurrence') {
     updateRecurrenceRule(decision.truncatedRule);
     deleteExceptionsFollowing(task.id, decision.deleteExceptionsFromDate);
-    insertTask(decision.newTask);
+    // Insert new recurrence rule BEFORE task to satisfy FOREIGN KEY constraint
     insertRecurrenceRule(decision.newRule);
+    insertTask(decision.newTask);
   } else if (decision.type === 'update_master') {
     updateTask(decision.updatedTask);
+    if (updatedRule) {
+      updateRecurrenceRule({
+        ...rule,
+        ...updatedRule,
+        updated_at: new Date().toISOString(),
+      });
+    }
   }
 }
 

@@ -1,75 +1,73 @@
 import React from 'react';
 import {
-  View,
   Pressable,
-  ViewProps,
-  StyleSheet,
-  PressableProps,
+  StyleProp,
+  ViewStyle,
+  View,
 } from 'react-native';
-import { useAppTheme } from '@/hooks/useAppTheme';
-import { BorderRadius, Shadows, Spacing } from '@/theme';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+import { useTheme } from '@/hooks/useTheme';
+import { BorderRadius, Spacing } from '@/theme';
 
-export interface CardProps extends ViewProps {
+export interface CardProps {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
   onPress?: () => void;
-  highlighted?: boolean;
-  surface?: boolean;
-  border?: boolean;
+  elevated?: boolean;
+  bordered?: boolean;
 }
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function Card({
   children,
   style,
   onPress,
-  highlighted,
-  surface,
-  border = true,
-  ...props
+  elevated = false,
+  bordered = true,
 }: CardProps) {
-  const { colors } = useAppTheme();
+  const { colors, isDark, shadows } = useTheme();
+  const scale = useSharedValue(1);
 
-  const backgroundColor = highlighted
-    ? colors.cardHighlighted
-    : surface
-    ? colors.surface
-    : colors.card;
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
 
-  const cardStyle = [
-    styles.card,
-    {
-      backgroundColor,
-      borderColor: border ? colors.border : 'transparent',
-    },
-    Shadows.sm,
-    style,
-  ];
+  const handlePressIn = () => {
+    if (!onPress) return;
+    scale.value = withSpring(0.985, { damping: 18, stiffness: 400 });
+  };
+
+  const handlePressOut = () => {
+    if (!onPress) return;
+    scale.value = withSpring(1, { damping: 18, stiffness: 400 });
+  };
+
+  const containerStyle: ViewStyle = {
+    backgroundColor: elevated ? colors.surfaceElevated : colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.base,
+    borderWidth: bordered ? 1 : 0,
+    borderColor: isDark ? colors.border : colors.borderSubtle,
+    ...(isDark ? {} : elevated ? shadows.md : shadows.sm),
+  };
 
   if (onPress) {
     return (
-      <Pressable
+      <AnimatedPressable
         onPress={onPress}
-        style={({ pressed }) => [
-          cardStyle,
-          pressed && { opacity: 0.88, transform: [{ scale: 0.995 }] },
-        ]}
-        {...(props as PressableProps)}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={[containerStyle, animatedStyle, style]}
       >
         {children}
-      </Pressable>
+      </AnimatedPressable>
     );
   }
 
-  return (
-    <View style={cardStyle} {...props}>
-      {children}
-    </View>
-  );
+  return <View style={[containerStyle, style]}>{children}</View>;
 }
-
-const styles = StyleSheet.create({
-  card: {
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    borderWidth: 1,
-  },
-});
-

@@ -1,20 +1,25 @@
 import React from 'react';
 import {
-  Pressable,
   ActivityIndicator,
   StyleSheet,
   View,
   StyleProp,
   ViewStyle,
   TextStyle,
+  Pressable,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { ThemedText } from './ThemedText';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { BorderRadius, Spacing } from '@/theme';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'destructive';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps {
@@ -29,7 +34,10 @@ export interface ButtonProps {
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
   hapticFeedback?: boolean;
+  fullWidth?: boolean;
 }
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function Button({
   title,
@@ -43,9 +51,24 @@ export function Button({
   style,
   textStyle,
   hapticFeedback = true,
+  fullWidth = false,
 }: ButtonProps) {
-  const { colors } = useAppTheme();
+  const { colors } = useTheme();
   const hapticsEnabled = useSettingsStore((s) => s.settings.haptics_enabled);
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    if (disabled || loading) return;
+    scale.value = withSpring(0.97, { damping: 15, stiffness: 350 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 350 });
+  };
 
   const handlePress = () => {
     if (disabled || loading) return;
@@ -55,55 +78,63 @@ export function Button({
     onPress();
   };
 
-  // Variant styles
-  let bgColor = colors.primary;
-  let textColor = colors.textInverse;
+  // Colors per variant
+  let bgColor = colors.accent;
+  let textColor = '#FFFFFF';
   let borderColor = 'transparent';
 
   if (variant === 'secondary') {
     bgColor = colors.surfaceVariant;
-    textColor = colors.text;
+    textColor = colors.textPrimary;
+    borderColor = colors.borderSubtle;
   } else if (variant === 'outline') {
     bgColor = 'transparent';
-    textColor = colors.primary;
+    textColor = colors.accent;
     borderColor = colors.border;
   } else if (variant === 'ghost') {
     bgColor = 'transparent';
     textColor = colors.textSecondary;
-  } else if (variant === 'danger') {
+  } else if (variant === 'danger' || variant === 'destructive') {
     bgColor = colors.danger;
-    textColor = colors.textInverse;
+    textColor = '#FFFFFF';
   }
 
-  // Size styles
-  let paddingVertical: number = Spacing.md;
-  let paddingHorizontal: number = Spacing.xl;
-  let fontSizeVariant: 'caption' | 'bodyMedium' | 'subhead' = 'bodyMedium';
+  // Size specifications
+  let minHeight = 44;
+  let paddingVertical = Spacing.sm;
+  let paddingHorizontal = Spacing.lg;
+  let textVariant: 'caption' | 'bodyMedium' | 'subheading' = 'bodyMedium';
 
   if (size === 'sm') {
-    paddingVertical = Spacing.xs;
+    minHeight = 36;
+    paddingVertical = 6;
     paddingHorizontal = Spacing.md;
-    fontSizeVariant = 'subhead';
+    textVariant = 'caption';
   } else if (size === 'lg') {
-    paddingVertical = Spacing.lg;
-    paddingHorizontal = Spacing.xxl;
-    fontSizeVariant = 'bodyMedium';
+    minHeight = 52;
+    paddingVertical = Spacing.md;
+    paddingHorizontal = Spacing.xl;
+    textVariant = 'bodyMedium';
   }
 
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={handlePress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       disabled={disabled || loading}
-      style={({ pressed }) => [
+      style={[
         styles.button,
+        animatedStyle,
         {
           backgroundColor: bgColor,
           borderColor,
-          borderWidth: variant === 'outline' ? 1 : 0,
+          borderWidth: borderColor !== 'transparent' ? 1 : 0,
+          minHeight,
           paddingVertical,
           paddingHorizontal,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
-          transform: [{ scale: pressed && !disabled && !loading ? 0.98 : 1 }],
+          opacity: disabled ? 0.45 : 1,
+          alignSelf: fullWidth ? 'stretch' : 'auto',
         },
         style,
       ]}
@@ -111,36 +142,47 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={textColor} size="small" />
       ) : (
-        <View style={styles.content}>
-          {icon && iconPosition === 'left' && <View style={styles.iconLeft}>{icon}</View>}
+        <View style={styles.contentRow}>
+          {icon && iconPosition === 'left' && (
+            <View style={styles.iconLeft}>{icon}</View>
+          )}
           <ThemedText
-            variant={fontSizeVariant}
-            style={[{ color: textColor, fontWeight: '600' }, textStyle]}
+            variant={textVariant}
+            style={[
+              styles.text,
+              { color: textColor, fontWeight: '600' },
+              textStyle,
+            ]}
           >
             {title}
           </ThemedText>
-          {icon && iconPosition === 'right' && <View style={styles.iconRight}>{icon}</View>}
+          {icon && iconPosition === 'right' && (
+            <View style={styles.iconRight}>{icon}</View>
+          )}
         </View>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
     borderRadius: BorderRadius.md,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  content: {
+  contentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconLeft: {
-    marginRight: Spacing.xs,
+    marginRight: Spacing.sm,
   },
   iconRight: {
-    marginLeft: Spacing.xs,
+    marginLeft: Spacing.sm,
+  },
+  text: {
+    textAlign: 'center',
   },
 });

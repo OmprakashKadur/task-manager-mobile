@@ -1,15 +1,17 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
+import { View, StyleSheet, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { ThemedText } from './ThemedText';
-import { BorderRadius, Spacing } from '@/theme';
+import { useTheme } from '@/hooks/useTheme';
+import { BorderRadius } from '@/theme';
 
 export interface BadgeProps {
   label: string;
-  color: string;
+  color?: string;
   backgroundColor?: string;
   icon?: React.ReactNode;
-  style?: ViewStyle;
   size?: 'sm' | 'md';
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 }
 
 export function Badge({
@@ -17,31 +19,46 @@ export function Badge({
   color,
   backgroundColor,
   icon,
-  style,
   size = 'md',
+  style,
+  textStyle,
 }: BadgeProps) {
-  // If no background color provided, create a soft 12% opacity tint of the main color
-  const bg = backgroundColor || `${color}1F`;
+  const { colors, isDark } = useTheme();
+
+  const activeColor = color || colors.accent;
+  const activeBg =
+    backgroundColor ||
+    (isDark ? `${activeColor}24` : `${activeColor}14`);
+
+  const isSmall = size === 'sm';
 
   return (
     <View
       style={[
         styles.badge,
         {
-          backgroundColor: bg,
-          paddingVertical: size === 'sm' ? 2 : 4,
-          paddingHorizontal: size === 'sm' ? Spacing.xs : Spacing.sm,
+          backgroundColor: activeBg,
+          borderColor: isDark ? `${activeColor}30` : `${activeColor}20`,
+          borderWidth: 1,
+          paddingVertical: isSmall ? 2 : 4,
+          paddingHorizontal: isSmall ? 6 : 8,
         },
         style,
       ]}
     >
       {icon && <View style={styles.icon}>{icon}</View>}
       <ThemedText
-        variant="badge"
-        style={{
-          color,
-          fontSize: size === 'sm' ? 10 : 11,
-        }}
+        variant="micro"
+        tabular
+        style={[
+          styles.text,
+          {
+            color: activeColor,
+            fontWeight: '600',
+            fontSize: isSmall ? 10 : 11,
+          },
+          textStyle,
+        ]}
       >
         {label}
       </ThemedText>
@@ -53,11 +70,13 @@ const styles = StyleSheet.create({
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: BorderRadius.xs,
+    borderRadius: BorderRadius.full,
     alignSelf: 'flex-start',
   },
   icon: {
-    marginRight: Spacing.xxs,
+    marginRight: 4,
+  },
+  text: {
+    includeFontPadding: false,
   },
 });
-

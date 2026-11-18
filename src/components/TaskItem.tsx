@@ -1,12 +1,12 @@
 import React from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import ReanimatedSwipeable, {
   SwipeDirection,
 } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { ThemedText, Card, Badge } from '@/components/ui';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { ThemedText, Card, Badge, Checkbox } from '@/components/ui';
+import { useTheme } from '@/hooks/useTheme';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { TaskOccurrence } from '@/types';
 import { Spacing, BorderRadius } from '@/theme';
@@ -24,31 +24,20 @@ export function TaskItem({
   onPress,
   onDelete,
 }: TaskItemProps) {
-  const { colors } = useAppTheme();
+  const { colors } = useTheme();
   const hapticsEnabled = useSettingsStore((s) => s.settings.haptics_enabled);
   const isDone = occurrence.status === 'done';
-
-  const handleCheckboxPress = () => {
-    if (hapticsEnabled) {
-      Haptics.impactAsync(
-        isDone
-          ? Haptics.ImpactFeedbackStyle.Light
-          : Haptics.ImpactFeedbackStyle.Medium
-      ).catch(() => {});
-    }
-    onToggleComplete(occurrence);
-  };
 
   const renderLeftActions = () => {
     return (
       <View style={[styles.swipeAction, { backgroundColor: colors.success }]}>
         <Ionicons
           name={isDone ? 'arrow-undo' : 'checkmark-done'}
-          size={24}
+          size={22}
           color="#FFFFFF"
         />
-        <ThemedText variant="caption" style={{ color: '#FFFFFF', fontWeight: '700', marginTop: 2 }}>
-          {isDone ? 'Undo' : 'Complete'}
+        <ThemedText variant="micro" style={{ color: '#FFFFFF', fontWeight: '700', marginTop: 2 }}>
+          {isDone ? 'Undo' : 'Done'}
         </ThemedText>
       </View>
     );
@@ -57,8 +46,8 @@ export function TaskItem({
   const renderRightActions = () => {
     return (
       <View style={[styles.swipeAction, { backgroundColor: colors.danger }]}>
-        <Ionicons name="trash" size={24} color="#FFFFFF" />
-        <ThemedText variant="caption" style={{ color: '#FFFFFF', fontWeight: '700', marginTop: 2 }}>
+        <Ionicons name="trash-outline" size={22} color="#FFFFFF" />
+        <ThemedText variant="micro" style={{ color: '#FFFFFF', fontWeight: '700', marginTop: 2 }}>
           Delete
         </ThemedText>
       </View>
@@ -67,6 +56,7 @@ export function TaskItem({
 
   const completedSubtasks = occurrence.subtasks?.filter((s) => s.completed).length || 0;
   const totalSubtasks = occurrence.subtasks?.length || 0;
+  const catColor = occurrence.category?.color || colors.accent;
 
   return (
     <ReanimatedSwipeable
@@ -74,7 +64,7 @@ export function TaskItem({
       renderRightActions={renderRightActions}
       onSwipeableOpen={(direction: SwipeDirection) => {
         if (direction === SwipeDirection.LEFT) {
-          handleCheckboxPress();
+          onToggleComplete(occurrence);
         } else if (direction === SwipeDirection.RIGHT) {
           if (hapticsEnabled) {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
@@ -88,28 +78,29 @@ export function TaskItem({
         onPress={() => onPress(occurrence)}
         style={[
           styles.card,
+          {
+            borderLeftColor: catColor,
+            borderLeftWidth: 3.5,
+          },
           isDone && {
             borderColor: colors.success + '40',
+          },
+          occurrence.is_overdue && !isDone && {
+            borderColor: colors.danger,
             borderWidth: 1.5,
           },
-          occurrence.is_overdue && !isDone && { borderColor: colors.dangerLight, borderWidth: 1.5 },
         ]}
       >
         <View style={styles.row}>
-          {/* Checkbox */}
-          <Pressable
-            hitSlop={10}
-            onPress={handleCheckboxPress}
-            style={[
-              styles.checkbox,
-              {
-                borderColor: isDone ? colors.success : colors.border,
-                backgroundColor: isDone ? colors.success : 'transparent',
-              },
-            ]}
-          >
-            {isDone && <Ionicons name="checkmark-sharp" size={15} color="#FFFFFF" />}
-          </Pressable>
+          {/* Animated Checkbox */}
+          <View style={styles.checkboxWrapper}>
+            <Checkbox
+              checked={isDone}
+              onToggle={() => onToggleComplete(occurrence)}
+              color={colors.success}
+              size={22}
+            />
+          </View>
 
           {/* Task Info */}
           <View style={styles.textContainer}>
@@ -129,8 +120,8 @@ export function TaskItem({
               {occurrence.is_recurring && (
                 <Ionicons
                   name="repeat"
-                  size={15}
-                  color={colors.primary}
+                  size={14}
+                  color={colors.accent}
                   style={styles.recurringIcon}
                 />
               )}
@@ -154,7 +145,7 @@ export function TaskItem({
                 <Badge
                   label="Completed"
                   color={colors.success}
-                  backgroundColor={colors.successLight}
+                  backgroundColor={colors.successSoft}
                   icon={
                     <Ionicons
                       name="checkmark-circle"
@@ -171,7 +162,8 @@ export function TaskItem({
                 <Badge
                   label="Overdue"
                   color={colors.danger}
-                  backgroundColor={colors.dangerLight}
+                  backgroundColor={colors.dangerSoft}
+                  icon={<Ionicons name="alert-circle" size={11} color={colors.danger} />}
                   size="sm"
                 />
               )}
@@ -198,7 +190,7 @@ export function TaskItem({
               ) : (
                 <Badge
                   label="Anytime"
-                  color={colors.textMuted}
+                  color={colors.textTertiary}
                   backgroundColor={colors.surfaceVariant}
                   size="sm"
                 />
@@ -208,12 +200,12 @@ export function TaskItem({
               {occurrence.category && (
                 <Badge
                   label={occurrence.category.name}
-                  color={occurrence.category.color}
+                  color={catColor}
                   icon={
                     <Ionicons
                       name={(occurrence.category.icon as any) || 'pricetag'}
                       size={11}
-                      color={occurrence.category.color}
+                      color={catColor}
                     />
                   }
                   size="sm"
@@ -225,6 +217,7 @@ export function TaskItem({
                 <Badge
                   label="High"
                   color={colors.priorityHigh}
+                  backgroundColor={colors.dangerSoft}
                   size="sm"
                 />
               )}
@@ -236,7 +229,7 @@ export function TaskItem({
                   color={completedSubtasks === totalSubtasks ? colors.success : colors.textSecondary}
                   backgroundColor={
                     completedSubtasks === totalSubtasks
-                      ? colors.successLight
+                      ? colors.successSoft
                       : colors.surfaceVariant
                   }
                   icon={
@@ -278,13 +271,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+  checkboxWrapper: {
     marginRight: Spacing.md,
     marginTop: 2,
   },
@@ -312,7 +299,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   swipeAction: {
-    width: 80,
+    width: 76,
     justifyContent: 'center',
     alignItems: 'center',
     height: '100%',

@@ -8,7 +8,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { ThemedText } from './ThemedText';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { useTheme } from '@/hooks/useTheme';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -24,7 +24,7 @@ export interface ProgressRingProps {
 }
 
 export function ProgressRing({
-  size = 100,
+  size = 110,
   strokeWidth = 10,
   progress,
   completed,
@@ -33,7 +33,7 @@ export function ProgressRing({
   trackColor,
   showText = true,
 }: ProgressRingProps) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useTheme();
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
@@ -42,7 +42,7 @@ export function ProgressRing({
   useEffect(() => {
     const clamped = Math.min(Math.max(progress, 0), 1);
     animatedProgress.value = withTiming(clamped, {
-      duration: 600,
+      duration: 650,
       easing: Easing.out(Easing.cubic),
     });
   }, [progress, animatedProgress]);
@@ -54,8 +54,11 @@ export function ProgressRing({
     };
   });
 
-  const activeColor = color || colors.success;
-  const activeTrackColor = trackColor || colors.borderSubtle;
+  const isComplete = total > 0 && completed === total;
+  const activeColor =
+    color || (isComplete ? colors.success : colors.accent);
+  const activeTrackColor =
+    trackColor || (isDark ? 'rgba(255,255,255,0.08)' : colors.borderSubtle);
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>
@@ -87,11 +90,11 @@ export function ProgressRing({
       </Svg>
       {showText && (
         <View style={styles.textContainer}>
-          <ThemedText variant="h3" style={{ fontWeight: '700' }}>
+          <ThemedText variant="heading" tabular style={styles.countText}>
             {completed}/{total}
           </ThemedText>
-          <ThemedText variant="caption" secondary>
-            done
+          <ThemedText variant="micro" secondary style={styles.labelText}>
+            {isComplete ? 'All Done! 🎉' : 'completed'}
           </ThemedText>
         </View>
       )}
@@ -103,11 +106,20 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   textContainer: {
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  countText: {
+    fontWeight: '800',
+    includeFontPadding: false,
+  },
+  labelText: {
+    fontWeight: '600',
+    marginTop: 1,
+    includeFontPadding: false,
+  },
 });
-

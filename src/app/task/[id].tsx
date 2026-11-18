@@ -1,17 +1,17 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { ThemedText, EmptyState } from '@/components/ui';
+import { ThemedText, EmptyState, IconButton } from '@/components/ui';
 import { TaskForm } from '@/components/TaskForm';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { getTaskById, getRecurrenceRuleByTaskId } from '@/db/tasks';
 import { Spacing } from '@/theme';
 
 export default function EditTaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors } = useAppTheme();
+  const { colors } = useTheme();
 
   const task = useMemo(() => {
     if (!id) return null;
@@ -27,9 +27,12 @@ export default function EditTaskScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={10}>
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </Pressable>
+          <IconButton
+            icon={<Ionicons name="arrow-back" size={22} color={colors.textPrimary} />}
+            onPress={() => router.back()}
+            accessibilityLabel="Go back"
+            size={36}
+          />
         </View>
         <EmptyState
           icon="alert-circle-outline"
@@ -45,11 +48,14 @@ export default function EditTaskScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { borderBottomColor: colors.borderSubtle }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </Pressable>
-        <ThemedText variant="h3">Edit Task</ThemedText>
-        <View style={{ width: 24 }} />
+        <IconButton
+          icon={<Ionicons name="arrow-back" size={22} color={colors.textPrimary} />}
+          onPress={() => router.back()}
+          accessibilityLabel="Go back"
+          size={36}
+        />
+        <ThemedText variant="heading">Edit Task</ThemedText>
+        <View style={{ width: 36 }} />
       </View>
 
       <TaskForm initialTask={task} initialRule={rule} isEditing />
@@ -65,11 +71,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.base,
+    paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
-  },
-  backBtn: {
-    padding: 4,
   },
 });

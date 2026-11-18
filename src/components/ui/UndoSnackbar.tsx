@@ -1,55 +1,110 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
-import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
-import { useTaskStore } from '@/store/useTaskStore';
-import { useAppTheme } from '@/hooks/useAppTheme';
-import { ThemedText } from './ThemedText';
-import { BorderRadius, Shadows, Spacing } from '@/theme';
+import Animated, {
+  FadeInDown,
+  FadeOutDown,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { useTaskStore } from '@/store/useTaskStore';
+import { useTheme } from '@/hooks/useTheme';
+import { ThemedText } from './ThemedText';
+import { BorderRadius, Spacing } from '@/theme';
 
 export function UndoSnackbar() {
   const undoAction = useTaskStore((s) => s.undoAction);
   const clearUndo = useTaskStore((s) => s.clearUndo);
-  const { colors } = useAppTheme();
+  const { colors, isDark, shadows } = useTheme();
+
+  const progress = useSharedValue(1);
+
+  useEffect(() => {
+    if (undoAction) {
+      progress.value = 1;
+      progress.value = withTiming(0, {
+        duration: 5000,
+        easing: Easing.linear,
+      });
+    }
+  }, [undoAction, progress]);
+
+  const progressBarStyle = useAnimatedStyle(() => ({
+    width: `${progress.value * 100}%`,
+  }));
 
   if (!undoAction) return null;
 
+  const handleUndo = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    undoAction.undo();
+  };
+
   return (
     <Animated.View
-      entering={FadeInDown.duration(200)}
+      entering={FadeInDown.duration(240).springify()}
       exiting={FadeOutDown.duration(200)}
       style={[
         styles.container,
         {
-          backgroundColor: colors.surface,
-          borderColor: colors.border,
+          backgroundColor: isDark ? colors.surfaceElevated : colors.surface,
+          borderColor: isDark ? colors.border : colors.borderSubtle,
         },
-        Shadows.md,
+        shadows.lg,
       ]}
     >
       <View style={styles.content}>
-        <Ionicons name="information-circle" size={20} color={colors.primary} />
-        <ThemedText variant="subhead" style={styles.message} numberOfLines={1}>
+        <Ionicons name="sparkles" size={18} color={colors.accent} />
+        <ThemedText variant="bodyMedium" style={styles.message} numberOfLines={1}>
           {undoAction.message}
         </ThemedText>
       </View>
 
       <View style={styles.actions}>
         <Pressable
-          onPress={undoAction.undo}
+          onPress={handleUndo}
           style={({ pressed }) => [
             styles.undoButton,
-            { backgroundColor: colors.primaryLight, opacity: pressed ? 0.7 : 1 },
+            {
+              backgroundColor: colors.accentSoft,
+              opacity: pressed ? 0.75 : 1,
+            },
           ]}
         >
-          <ThemedText variant="subhead" style={{ color: colors.primary, fontWeight: '700' }}>
+          <ThemedText
+            variant="caption"
+            style={{ color: colors.accent, fontWeight: '700' }}
+          >
             Undo
           </ThemedText>
         </Pressable>
 
-        <Pressable onPress={clearUndo} style={styles.dismissButton}>
-          <Ionicons name="close" size={18} color={colors.textMuted} />
+        <Pressable onPress={clearUndo} hitSlop={10} style={styles.dismissButton}>
+          <Ionicons name="close" size={18} color={colors.textTertiary} />
         </Pressable>
+      </View>
+
+      {/* Auto-dismiss progress bar */}
+      <View
+        style={[
+          styles.track,
+          {
+            backgroundColor: isDark
+              ? 'rgba(255,255,255,0.06)'
+              : 'rgba(0,0,0,0.04)',
+          },
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.progressBar,
+            progressBarStyle,
+            { backgroundColor: colors.accent },
+          ]}
+        />
       </View>
     </Animated.View>
   );
@@ -58,17 +113,18 @@ export function UndoSnackbar() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 32,
     left: 16,
     right: 16,
     zIndex: 9999,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.lg,
+    paddingVertical: 12,
+    paddingHorizontal: Spacing.base,
+    borderRadius: BorderRadius.xl,
     borderWidth: 1,
+    overflow: 'hidden',
   },
   content: {
     flexDirection: 'row',
@@ -79,6 +135,7 @@ const styles = StyleSheet.create({
   },
   message: {
     flex: 1,
+    fontWeight: '500',
   },
   actions: {
     flexDirection: 'row',
@@ -88,9 +145,19 @@ const styles = StyleSheet.create({
   undoButton: {
     paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.full,
   },
   dismissButton: {
     padding: 4,
+  },
+  track: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+  },
+  progressBar: {
+    height: '100%',
   },
 });

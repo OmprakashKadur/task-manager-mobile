@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, ViewStyle } from 'react-native';
+import { StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -7,28 +7,28 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { BorderRadius } from '@/theme';
 
 export interface SkeletonProps {
-  width?: number | string;
+  width?: number | `${number}%`;
   height?: number;
   borderRadius?: number;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export function Skeleton({
   width = '100%',
-  height = 18,
+  height = 16,
   borderRadius = BorderRadius.sm,
   style,
 }: SkeletonProps) {
-  const { colors } = useAppTheme();
-  const opacity = useSharedValue(0.3);
+  const { isDark } = useTheme();
+  const opacity = useSharedValue(0.4);
 
   useEffect(() => {
     opacity.value = withRepeat(
-      withTiming(0.8, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+      withTiming(0.85, { duration: 800, easing: Easing.inOut(Easing.ease) }),
       -1,
       true
     );
@@ -42,13 +42,15 @@ export function Skeleton({
     <Animated.View
       style={[
         styles.skeleton,
+        animatedStyle,
         {
-          width: width as any,
+          width,
           height,
           borderRadius,
-          backgroundColor: colors.border,
+          backgroundColor: isDark
+            ? 'rgba(255, 255, 255, 0.08)'
+            : 'rgba(0, 0, 0, 0.07)',
         },
-        animatedStyle,
         style,
       ]}
     />

@@ -4,6 +4,14 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import {
+  useFonts,
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from '@expo-google-fonts/plus-jakarta-sans';
 import { initDatabase } from '@/db/database';
 import { useThemeStore } from '@/store/useThemeStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -22,6 +30,13 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
+  const [fontsLoaded, fontError] = useFonts({
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
+  });
   const isDark = useThemeStore((s) => s.isDark);
   const colors = useThemeStore((s) => s.colors);
   const initTheme = useThemeStore((s) => s.initTheme);
@@ -54,12 +69,18 @@ export default function RootLayout() {
         console.error('[RootLayout] Init error:', e);
       } finally {
         setIsReady(true);
-        SplashScreen.hideAsync().catch(() => {});
       }
     }
 
     initialize();
   }, [loadSettings, initTheme, loadCategories]);
+
+  // Hide splash screen only when both fonts and database initialization are ready
+  useEffect(() => {
+    if (isReady && (fontsLoaded || fontError)) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [isReady, fontsLoaded, fontError]);
 
   // Setup notification response listeners (action buttons & taps)
   useEffect(() => {
@@ -94,7 +115,7 @@ export default function RootLayout() {
     };
   }, [setSystemScheme]);
 
-  if (!isReady) {
+  if (!isReady || (!fontsLoaded && !fontError)) {
     return <View style={[styles.container, { backgroundColor: colors.background }]} />;
   }
 

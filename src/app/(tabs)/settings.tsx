@@ -5,13 +5,22 @@ import {
   StyleSheet,
   Switch,
   Pressable,
-  TextInput,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { ThemedText, Card, Button } from '@/components/ui';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import * as Haptics from 'expo-haptics';
+import {
+  ThemedText,
+  Card,
+  Button,
+  Chip,
+  SegmentedControl,
+  TextField,
+  SectionHeader,
+  Badge,
+} from '@/components/ui';
+import { useTheme } from '@/hooks/useTheme';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useThemeStore } from '@/store/useThemeStore';
 import { useTaskStore } from '@/store/useTaskStore';
@@ -29,11 +38,12 @@ import { ThemeMode } from '@/types';
 const REMINDER_OPTIONS = [5, 10, 15, 30, 60];
 
 export default function SettingsScreen() {
-  const { colors, mode } = useAppTheme();
+  const { colors, mode } = useTheme();
   const setMode = useThemeStore((s) => s.setMode);
   const settings = useSettingsStore((s) => s.settings);
   const updateSetting = useSettingsStore((s) => s.updateSetting);
   const triggerRefresh = useTaskStore((s) => s.triggerRefresh);
+  const hapticsEnabled = useSettingsStore((s) => s.settings.haptics_enabled);
 
   const [userNameInput, setUserNameInput] = useState(settings.user_name || '');
   const [hasNotifPermission, setHasNotifPermission] = useState(false);
@@ -44,16 +54,13 @@ export default function SettingsScreen() {
     getNotificationPermissionStatus().then(setHasNotifPermission);
   }, []);
 
-  const themeOptions: { label: string; value: ThemeMode; icon: any }[] = [
-    { label: 'System', value: 'system', icon: 'phone-portrait-outline' },
-    { label: 'Light', value: 'light', icon: 'sunny-outline' },
-    { label: 'Dark', value: 'dark', icon: 'moon-outline' },
-  ];
-
   const handleSaveUserName = async () => {
+    if (hapticsEnabled) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
     updateSetting('user_name', userNameInput.trim());
     await registerDevice(userNameInput.trim());
-    Alert.alert('Saved', 'Name updated successfully.');
+    Alert.alert('Saved', 'Profile name updated successfully.');
   };
 
   const handleRequestPermissions = async () => {
@@ -122,6 +129,13 @@ export default function SettingsScreen() {
 
   const deviceId = getOrCreateDeviceId();
 
+  const handleThemeSelect = (newMode: ThemeMode) => {
+    if (hapticsEnabled) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    setMode(newMode);
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
@@ -129,309 +143,303 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <ThemedText variant="h1" style={{ marginBottom: Spacing.xs }}>
+        <ThemedText variant="display" style={styles.title}>
           Settings
         </ThemedText>
-        <ThemedText variant="body" secondary style={{ marginBottom: Spacing.lg }}>
-          Preferences, backups, and app configuration.
+        <ThemedText variant="caption" secondary style={styles.subtitle}>
+          Customize your experience, notifications, and data
         </ThemedText>
 
-        {/* User Profile / Name */}
-        <Card style={styles.card}>
-          <ThemedText variant="h3" style={styles.cardTitle}>
-            Profile
-          </ThemedText>
-          <ThemedText variant="caption" secondary style={{ marginBottom: Spacing.sm }}>
-            Your name is used for personalizing daily greetings and fleet telemetry.
+        {/* 1. Theme Preview Selector */}
+        <Card style={styles.card} elevated>
+          <SectionHeader title="Appearance" icon="color-palette-outline" />
+          <ThemedText variant="caption" secondary style={{ marginTop: -Spacing.xs, marginBottom: Spacing.md }}>
+            Choose a theme or sync with your system settings
           </ThemedText>
 
-          <View style={styles.inputRow}>
-            <TextInput
+          <View style={styles.themeCardsRow}>
+            {/* System */}
+            <Pressable
+              onPress={() => handleThemeSelect('system')}
+              style={[
+                styles.themeCard,
+                {
+                  backgroundColor: colors.surfaceVariant,
+                  borderColor: mode === 'system' ? colors.accent : colors.borderSubtle,
+                  borderWidth: mode === 'system' ? 2 : 1,
+                },
+              ]}
+            >
+              <View style={styles.themeMockupSystem}>
+                <View style={[styles.mockupHalf, { backgroundColor: '#F8F9FC' }]}>
+                  <View style={[styles.mockupCard, { backgroundColor: '#FFFFFF' }]} />
+                </View>
+                <View style={[styles.mockupHalf, { backgroundColor: '#0D1117' }]}>
+                  <View style={[styles.mockupCard, { backgroundColor: '#161B22' }]} />
+                </View>
+              </View>
+              <ThemedText variant="caption" style={{ fontWeight: '700', marginTop: 8 }}>
+                System
+              </ThemedText>
+              {mode === 'system' && (
+                <View style={[styles.themeCheckmark, { backgroundColor: colors.accent }]}>
+                  <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                </View>
+              )}
+            </Pressable>
+
+            {/* Light */}
+            <Pressable
+              onPress={() => handleThemeSelect('light')}
+              style={[
+                styles.themeCard,
+                {
+                  backgroundColor: colors.surfaceVariant,
+                  borderColor: mode === 'light' ? colors.accent : colors.borderSubtle,
+                  borderWidth: mode === 'light' ? 2 : 1,
+                },
+              ]}
+            >
+              <View style={[styles.themeMockup, { backgroundColor: '#F8F9FC', borderColor: '#E5E9F0' }]}>
+                <View style={[styles.mockupHeader, { backgroundColor: '#4F46E5' }]} />
+                <View style={[styles.mockupCard, { backgroundColor: '#FFFFFF', borderColor: '#E5E9F0' }]} />
+                <View style={[styles.mockupCard, { backgroundColor: '#FFFFFF', borderColor: '#E5E9F0' }]} />
+              </View>
+              <ThemedText variant="caption" style={{ fontWeight: '700', marginTop: 8 }}>
+                Light
+              </ThemedText>
+              {mode === 'light' && (
+                <View style={[styles.themeCheckmark, { backgroundColor: colors.accent }]}>
+                  <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                </View>
+              )}
+            </Pressable>
+
+            {/* Dark */}
+            <Pressable
+              onPress={() => handleThemeSelect('dark')}
+              style={[
+                styles.themeCard,
+                {
+                  backgroundColor: colors.surfaceVariant,
+                  borderColor: mode === 'dark' ? colors.accent : colors.borderSubtle,
+                  borderWidth: mode === 'dark' ? 2 : 1,
+                },
+              ]}
+            >
+              <View style={[styles.themeMockup, { backgroundColor: '#0D1117', borderColor: '#2A313C' }]}>
+                <View style={[styles.mockupHeader, { backgroundColor: '#818CF8' }]} />
+                <View style={[styles.mockupCard, { backgroundColor: '#161B22', borderColor: '#2A313C' }]} />
+                <View style={[styles.mockupCard, { backgroundColor: '#161B22', borderColor: '#2A313C' }]} />
+              </View>
+              <ThemedText variant="caption" style={{ fontWeight: '700', marginTop: 8 }}>
+                Dark
+              </ThemedText>
+              {mode === 'dark' && (
+                <View style={[styles.themeCheckmark, { backgroundColor: colors.accent }]}>
+                  <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                </View>
+              )}
+            </Pressable>
+          </View>
+        </Card>
+
+        {/* 2. User Profile / Name */}
+        <Card style={styles.card} elevated>
+          <SectionHeader title="Profile & Greeting" icon="person-outline" />
+          <ThemedText variant="caption" secondary style={{ marginTop: -Spacing.xs, marginBottom: Spacing.md }}>
+            Used for your personalized daily greetings and device registration
+          </ThemedText>
+
+          <View style={styles.nameRow}>
+            <TextField
               value={userNameInput}
               onChangeText={setUserNameInput}
-              placeholder="Enter your name"
-              placeholderTextColor={colors.textMuted}
-              style={[
-                styles.nameInput,
-                { color: colors.text, borderColor: colors.border, backgroundColor: colors.surfaceVariant },
-              ]}
+              placeholder="Your Name (e.g. Alex)"
+              containerStyle={{ flex: 1, marginBottom: 0 }}
             />
             <Button
               title="Save"
               onPress={handleSaveUserName}
-              size="sm"
-              disabled={userNameInput.trim() === settings.user_name}
-            />
-          </View>
-        </Card>
-
-        {/* Appearance */}
-        <Card style={styles.card}>
-          <ThemedText variant="h3" style={styles.cardTitle}>
-            Appearance
-          </ThemedText>
-
-          <View style={styles.themeSelector}>
-            {themeOptions.map((opt) => {
-              const selected = mode === opt.value;
-              return (
-                <Pressable
-                  key={opt.value}
-                  onPress={() => setMode(opt.value)}
-                  style={[
-                    styles.themeOption,
-                    {
-                      backgroundColor: selected ? colors.primary : colors.surfaceVariant,
-                      borderColor: selected ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={opt.icon}
-                    size={20}
-                    color={selected ? '#FFFFFF' : colors.text}
-                  />
-                  <ThemedText
-                    variant="caption"
-                    style={{
-                      color: selected ? '#FFFFFF' : colors.text,
-                      fontWeight: selected ? '700' : '500',
-                      marginTop: 4,
-                    }}
-                  >
-                    {opt.label}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Card>
-
-        {/* Notifications & Reminders */}
-        <Card style={styles.card}>
-          <ThemedText variant="h3" style={styles.cardTitle}>
-            Notifications & Reminders
-          </ThemedText>
-
-          {/* Permission Status */}
-          <View style={styles.row}>
-            <View style={styles.rowText}>
-              <ThemedText variant="bodyMedium">Notification Status</ThemedText>
-              <ThemedText variant="caption" secondary>
-                {hasNotifPermission ? 'Granted and active' : 'Not granted'}
-              </ThemedText>
-            </View>
-            {!hasNotifPermission && (
-              <Button
-                title="Enable"
-                onPress={handleRequestPermissions}
-                variant="primary"
-                size="sm"
-              />
-            )}
-          </View>
-
-          {/* Morning Summary */}
-          <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.md, paddingTop: Spacing.md }]}>
-            <View style={styles.rowText}>
-              <ThemedText variant="bodyMedium">Daily Morning Summary</ThemedText>
-              <ThemedText variant="caption" secondary>
-                Receive an 8:00 AM briefing of scheduled tasks
-              </ThemedText>
-            </View>
-            <Switch
-              value={settings.morning_summary_enabled}
-              onValueChange={(val) => {
-                updateSetting('morning_summary_enabled', val);
-                resyncNotificationSchedule().catch(() => {});
-              }}
-              trackColor={{ false: colors.border, true: colors.primary }}
+              variant="primary"
+              size="md"
+              style={{ marginLeft: Spacing.sm }}
             />
           </View>
 
-          {/* Default reminder offset */}
-          <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.md, paddingTop: Spacing.md }]}>
-            <View style={styles.rowText}>
-              <ThemedText variant="bodyMedium">Default Reminder</ThemedText>
-              <ThemedText variant="caption" secondary>
-                Preset minutes before task start
+          <ThemedText variant="micro" secondary style={{ marginTop: Spacing.xs }}>
+            Device ID: {deviceId}
+          </ThemedText>
+        </Card>
+
+        {/* 3. Schedule & Reminder Preferences */}
+        <Card style={styles.card} elevated>
+          <SectionHeader title="Planning Preferences" icon="options-outline" />
+
+          {/* Week Start Day */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingLabelArea}>
+              <ThemedText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                Week Starts On
+              </ThemedText>
+              <ThemedText variant="micro" secondary>
+                Determines the first column on calendar grids
               </ThemedText>
             </View>
-            <View style={styles.pillRow}>
+
+            <SegmentedControl
+              options={[
+                { label: 'Monday', value: '1' },
+                { label: 'Sunday', value: '0' },
+              ]}
+              value={String(settings.week_start_day)}
+              onChange={(val) => updateSetting('week_start_day', (parseInt(val, 10) === 1 ? 1 : 0))}
+              style={{ width: 170 }}
+            />
+          </View>
+
+          {/* Default Reminder Minutes */}
+          <View style={[styles.settingRow, { marginTop: Spacing.md }]}>
+            <View style={styles.settingLabelArea}>
+              <ThemedText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                Default Reminder
+              </ThemedText>
+              <ThemedText variant="micro" secondary>
+                Pre-selected notification lead time for tasks
+              </ThemedText>
+            </View>
+
+            <View style={styles.reminderChips}>
               {REMINDER_OPTIONS.map((min) => {
                 const active = settings.default_reminder_minutes === min;
                 return (
-                  <Pressable
+                  <Chip
                     key={min}
+                    label={`${min}m`}
+                    selected={active}
+                    size="sm"
                     onPress={() => updateSetting('default_reminder_minutes', min)}
-                    style={[
-                      styles.smallPill,
-                      {
-                        backgroundColor: active ? colors.primary : colors.surfaceVariant,
-                        borderColor: active ? colors.primary : colors.border,
-                      },
-                    ]}
-                  >
-                    <ThemedText
-                      variant="caption"
-                      style={{
-                        color: active ? '#FFFFFF' : colors.text,
-                        fontWeight: active ? '700' : '500',
-                      }}
-                    >
-                      {min}m
-                    </ThemedText>
-                  </Pressable>
+                  />
                 );
               })}
             </View>
           </View>
-        </Card>
 
-        {/* Preferences */}
-        <Card style={styles.card}>
-          <ThemedText variant="h3" style={styles.cardTitle}>
-            Calendar & Preferences
-          </ThemedText>
-
-          {/* Week start day */}
-          <View style={styles.row}>
-            <View style={styles.rowText}>
-              <ThemedText variant="bodyMedium">Start Week On</ThemedText>
-              <ThemedText variant="caption" secondary>
-                First day of the week in calendar views
+          {/* Haptics Switch */}
+          <View style={[styles.switchRow, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.md, paddingTop: Spacing.md }]}>
+            <View style={styles.settingLabelArea}>
+              <ThemedText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                Haptic Feedback
               </ThemedText>
-            </View>
-            <View style={styles.pillRow}>
-              {[
-                { label: 'Monday', val: 1 as const },
-                { label: 'Sunday', val: 0 as const },
-              ].map((opt) => {
-                const active = settings.week_start_day === opt.val;
-                return (
-                  <Pressable
-                    key={opt.val}
-                    onPress={() => updateSetting('week_start_day', opt.val)}
-                    style={[
-                      styles.smallPill,
-                      {
-                        backgroundColor: active ? colors.primary : colors.surfaceVariant,
-                        borderColor: active ? colors.primary : colors.border,
-                      },
-                    ]}
-                  >
-                    <ThemedText
-                      variant="caption"
-                      style={{
-                        color: active ? '#FFFFFF' : colors.text,
-                        fontWeight: active ? '700' : '500',
-                      }}
-                    >
-                      {opt.label}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Haptic feedback */}
-          <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.md, paddingTop: Spacing.md }]}>
-            <View style={styles.rowText}>
-              <ThemedText variant="bodyMedium">Haptic Feedback</ThemedText>
-              <ThemedText variant="caption" secondary>
-                Tactile response on gestures, taps, and completions
+              <ThemedText variant="micro" secondary>
+                Vibrations on complete, delete, and actions
               </ThemedText>
             </View>
             <Switch
               value={settings.haptics_enabled}
               onValueChange={(val) => updateSetting('haptics_enabled', val)}
-              trackColor={{ false: colors.border, true: colors.primary }}
+              trackColor={{ false: colors.border, true: colors.accent }}
+            />
+          </View>
+        </Card>
+
+        {/* 4. Notifications Configuration */}
+        <Card style={styles.card} elevated>
+          <SectionHeader title="Notifications" icon="notifications-outline" />
+
+          {/* Permission Status */}
+          <View style={styles.switchRow}>
+            <View style={styles.settingLabelArea}>
+              <ThemedText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                Task Reminders
+              </ThemedText>
+              <ThemedText variant="micro" secondary>
+                {hasNotifPermission
+                  ? 'Scheduled using a 14-day rolling window'
+                  : 'Notifications permission is required'}
+              </ThemedText>
+            </View>
+
+            <Badge
+              label={hasNotifPermission ? 'Enabled' : 'Disabled'}
+              color={hasNotifPermission ? colors.success : colors.danger}
+              backgroundColor={hasNotifPermission ? colors.successSoft : colors.dangerSoft}
+              size="md"
             />
           </View>
 
-          {/* Notification Sounds */}
-          <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.md, paddingTop: Spacing.md }]}>
-            <View style={styles.rowText}>
-              <ThemedText variant="bodyMedium">Notification Sounds</ThemedText>
-              <ThemedText variant="caption" secondary>
-                Play system sound when reminders trigger
+          {!hasNotifPermission && (
+            <Button
+              title="Enable Notifications"
+              onPress={handleRequestPermissions}
+              variant="outline"
+              size="sm"
+              style={{ marginTop: Spacing.sm }}
+            />
+          )}
+
+          {/* Morning Summary Briefing */}
+          <View style={[styles.switchRow, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.md, paddingTop: Spacing.md }]}>
+            <View style={styles.settingLabelArea}>
+              <ThemedText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                Morning Summary
+              </ThemedText>
+              <ThemedText variant="micro" secondary>
+                Daily 8:00 AM briefing with your tasks for the day
               </ThemedText>
             </View>
             <Switch
-              value={settings.sound_enabled}
-              onValueChange={(val) => updateSetting('sound_enabled', val)}
-              trackColor={{ false: colors.border, true: colors.primary }}
+              value={settings.morning_summary_enabled}
+              onValueChange={async (val) => {
+                updateSetting('morning_summary_enabled', val);
+                await resyncNotificationSchedule();
+              }}
+              trackColor={{ false: colors.border, true: colors.accent }}
             />
           </View>
         </Card>
 
-        {/* Data & Backup */}
-        <Card style={styles.card}>
-          <ThemedText variant="h3" style={styles.cardTitle}>
-            Data & Backup
-          </ThemedText>
-          <ThemedText variant="caption" secondary style={{ marginBottom: Spacing.md }}>
-            Export all data as a JSON file or restore from a previous backup.
+        {/* 5. Backup & Data Management */}
+        <Card style={styles.card} elevated>
+          <SectionHeader title="Backup & Restore" icon="cloud-outline" />
+          <ThemedText variant="caption" secondary style={{ marginTop: -Spacing.xs, marginBottom: Spacing.md }}>
+            Export all data to a local JSON file or import a saved backup
           </ThemedText>
 
-          <View style={styles.backupButtonsRow}>
+          <View style={styles.backupActions}>
             <Button
-              title="Export Backup"
+              title="Export JSON Backup"
               onPress={handleExport}
               loading={exporting}
-              variant="outline"
-              icon={<Ionicons name="share-outline" size={16} color={colors.primary} />}
+              variant="secondary"
+              icon={<Ionicons name="share-outline" size={16} color={colors.textPrimary} />}
               style={{ flex: 1 }}
             />
             <Button
-              title="Import Backup"
+              title="Restore"
               onPress={handleImport}
               loading={importing}
               variant="secondary"
-              icon={<Ionicons name="download-outline" size={16} color={colors.text} />}
-              style={{ flex: 1, marginLeft: Spacing.sm }}
+              icon={<Ionicons name="download-outline" size={16} color={colors.textPrimary} />}
+              style={{ marginLeft: Spacing.sm }}
             />
           </View>
-
-          {/* Clear all data */}
-          <Button
-            title="Clear All Data"
-            onPress={handleClearAll}
-            variant="danger"
-            style={{ marginTop: Spacing.md }}
-          />
         </Card>
 
-        {/* Diagnostics & Info */}
-        <Card style={styles.card}>
-          <ThemedText variant="h3" style={styles.cardTitle}>
-            About & Diagnostics
+        {/* 6. Danger Zone */}
+        <Card style={styles.card} elevated>
+          <SectionHeader title="Reset All Data" icon="warning-outline" />
+          <ThemedText variant="caption" secondary style={{ marginTop: -Spacing.xs, marginBottom: Spacing.md }}>
+            Permanently delete all tasks, recurrence rules, and exceptions
           </ThemedText>
-          <View style={styles.diagRow}>
-            <ThemedText variant="caption" secondary>
-              App Version
-            </ThemedText>
-            <ThemedText variant="caption" style={{ fontWeight: '600' }}>
-              1.0.0
-            </ThemedText>
-          </View>
-          <View style={styles.diagRow}>
-            <ThemedText variant="caption" secondary>
-              Storage Engine
-            </ThemedText>
-            <ThemedText variant="caption" style={{ fontWeight: '600' }}>
-              expo-sqlite (WAL mode)
-            </ThemedText>
-          </View>
-          <View style={styles.diagRow}>
-            <ThemedText variant="caption" secondary>
-              Fleet Device ID
-            </ThemedText>
-            <ThemedText variant="caption" style={{ fontWeight: '600', maxWidth: 180 }} numberOfLines={1}>
-              {deviceId}
-            </ThemedText>
-          </View>
+
+          <Button
+            title="Clear All App Data"
+            onPress={handleClearAll}
+            variant="destructive"
+            icon={<Ionicons name="trash-outline" size={16} color="#FFFFFF" />}
+            fullWidth
+          />
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -446,68 +454,97 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xxxl,
+    paddingHorizontal: Spacing.base,
+    paddingTop: Spacing.md,
+    paddingBottom: 110,
+  },
+  title: {
+    fontWeight: '800',
+  },
+  subtitle: {
+    marginTop: 2,
+    marginBottom: Spacing.base,
   },
   card: {
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.base,
+    padding: Spacing.base,
   },
-  cardTitle: {
-    fontWeight: '700',
-    marginBottom: Spacing.xs,
-  },
-  inputRow: {
+  themeCardsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: Spacing.sm,
   },
-  nameInput: {
+  themeCard: {
     flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: BorderRadius.lg,
+    position: 'relative',
+  },
+  themeMockup: {
+    width: 60,
+    height: 70,
+    borderRadius: 8,
     borderWidth: 1,
-    borderRadius: BorderRadius.md,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    fontSize: 14,
+    padding: 4,
+    gap: 4,
   },
-  themeSelector: {
+  themeMockupSystem: {
+    width: 60,
+    height: 70,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
     flexDirection: 'row',
-    gap: Spacing.md,
-    marginTop: Spacing.sm,
+    overflow: 'hidden',
   },
-  themeOption: {
+  mockupHalf: {
     flex: 1,
+    padding: 3,
+  },
+  mockupHeader: {
+    height: 10,
+    borderRadius: 3,
+    marginBottom: 2,
+  },
+  mockupCard: {
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 1,
+    marginBottom: 3,
+  },
+  themeCheckmark: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
   },
-  row: {
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  rowText: {
-    flex: 1,
-    marginRight: Spacing.md,
-  },
-  pillRow: {
+  switchRow: {
     flexDirection: 'row',
-    gap: Spacing.xs,
-  },
-  smallPill: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-  },
-  backupButtonsRow: {
-    flexDirection: 'row',
-  },
-  diagRow: {
-    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+  },
+  settingLabelArea: {
+    flex: 1,
+    paddingRight: Spacing.md,
+  },
+  reminderChips: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  backupActions: {
+    flexDirection: 'row',
   },
 });

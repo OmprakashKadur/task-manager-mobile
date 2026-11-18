@@ -11,12 +11,20 @@ import {
   Platform,
 } from 'react-native';
 import { router } from 'expo-router';
+import { format, addDays } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { ThemedText, Card, Button, Badge } from '@/components/ui';
+import {
+  ThemedText,
+  Card,
+  Button,
+  Badge,
+  Chip,
+  SectionHeader,
+} from '@/components/ui';
 import { RecurrenceRulePicker } from './RecurrenceRulePicker';
 import { ScopeModal } from './ScopeModal';
-import { useAppTheme } from '@/hooks/useAppTheme';
+import { useTheme } from '@/hooks/useTheme';
 import { useCategoryStore } from '@/store/useCategoryStore';
 import { useTaskStore } from '@/store/useTaskStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -33,6 +41,9 @@ import {
   insertTask,
   insertRecurrenceRule,
   updateTask,
+  updateRecurrenceRule,
+  deleteRecurrenceRule,
+  deleteExceptionsFollowing,
   deleteTask,
 } from '@/db/tasks';
 import {
@@ -59,9 +70,9 @@ function generateId(): string {
 }
 
 const PRIORITIES: { label: string; value: Priority; color: string }[] = [
-  { label: 'Low', value: 'low', color: '#10B981' },
-  { label: 'Medium', value: 'medium', color: '#F59E0B' },
-  { label: 'High', value: 'high', color: '#EF4444' },
+  { label: 'Low', value: 'low', color: '#059669' },
+  { label: 'Medium', value: 'medium', color: '#D97706' },
+  { label: 'High', value: 'high', color: '#E11D48' },
 ];
 
 const REMINDER_OPTIONS = [
@@ -77,7 +88,7 @@ export function TaskForm({
   initialRule,
   isEditing = false,
 }: TaskFormProps) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useTheme();
   const categories = useCategoryStore((s) => s.categories);
   const defaultReminder = useSettingsStore(
     (s) => s.settings.default_reminder_minutes
@@ -117,6 +128,14 @@ export function TaskForm({
 
   const scrollViewRef = useRef<React.ElementRef<typeof ScrollView>>(null);
   const subtaskInputRef = useRef<React.ElementRef<typeof TextInput>>(null);
+
+  // Quick date chips
+  const quickDates = [
+    { label: 'Today', value: format(new Date(), 'yyyy-MM-dd') },
+    { label: 'Tomorrow', value: format(addDays(new Date(), 1), 'yyyy-MM-dd') },
+    { label: 'This Weekend', value: format(addDays(new Date(), (6 - new Date().getDay() + 7) % 7 || 7), 'yyyy-MM-dd') },
+    { label: 'Next Week', value: format(addDays(new Date(), 7), 'yyyy-MM-dd') },
+  ];
 
   // Subtask handlers
   const addSubtask = () => {
@@ -197,21 +216,78 @@ export function TaskForm({
       subtasks,
       reminders,
       status: initialTask?.status || 'pending',
-      recurrence_rule_id: recurrenceRule ? (initialRule?.id || generateId()) : undefined,
+      recurrence_rule_id: undefined,
       created_at: createdAt,
       updated_at: now,
     };
 
     if (isEditing) {
-      if (initialRule && scope) {
-        editRecurringTaskWithScope(
-          scope,
-          taskData,
-          initialRule,
-          initialTask!.date,
-          taskData
-        );
+      if (initialRule && !recurrenceRule) {
+        // User removed recurrence from an existing recurring task
+        taskData.recurrence_rule_id = undefined;
+        updateTask(taskData);
+        deleteRecurrenceRule(initialRule.id);
+        deleteExceptionsFollowing(taskData.id, '1970-01-01');
+      } else if (!initialRule && recurrenceRule) {
+        // User added repeat to an existing single-day task
+        const ruleId = generateId();
+        const fullRule: RecurrenceRule = {
+          id: ruleId,
+          task_id: taskData.id,
+          frequency: recurrenceRule.frequency || 'daily',
+          interval: recurrenceRule.interval || 1,
+          weekdays: recurrenceRule.weekdays,
+          month_day: recurrenceRule.month_day,
+          month_week: recurrenceRule.month_week,
+          month_weekday: recurrenceRule.month_weekday,
+          start_date: date,
+          end_type: recurrenceRule.end_type || 'never',
+          until_date: recurrenceRule.until_date,
+          count: recurrenceRule.count,
+          time_slots: recurrenceRule.time_slots,
+          created_at: now,
+          updated_at: now,
+        };
+        // 1. Insert rule first to satisfy FOREIGN KEY constraint
+        insertRecurrenceRule(fullRule);
+        // 2. Update task with recurrence_rule_id
+        taskData.recurrence_rule_id = ruleId;
+        updateTask(taskData);
+      } else if (initialRule && recurrenceRule) {
+        // User updated existing recurring task
+        const updatedRule: RecurrenceRule = {
+          ...initialRule,
+          frequency: recurrenceRule.frequency || initialRule.frequency,
+          interval: recurrenceRule.interval || initialRule.interval,
+          weekdays: recurrenceRule.weekdays,
+          month_day: recurrenceRule.month_day,
+          month_week: recurrenceRule.month_week,
+          month_weekday: recurrenceRule.month_weekday,
+          start_date: date,
+          end_type: recurrenceRule.end_type || initialRule.end_type,
+          until_date: recurrenceRule.until_date,
+          count: recurrenceRule.count,
+          time_slots: recurrenceRule.time_slots,
+          updated_at: now,
+        };
+
+        if (scope) {
+          editRecurringTaskWithScope(
+            scope,
+            taskData,
+            initialRule,
+            initialTask!.date,
+            taskData,
+            updatedRule
+          );
+        } else {
+          taskData.recurrence_rule_id = initialRule.id;
+          updateTask(taskData);
+          updateRecurrenceRule(updatedRule);
+        }
       } else {
+        // Normal single-day task update
+        taskData.recurrence_rule_id = undefined;
         updateTask(taskData);
       }
     } else {
@@ -236,8 +312,10 @@ export function TaskForm({
           created_at: now,
           updated_at: now,
         };
-        insertTask(taskData);
+        // 1. Insert recurrence rule FIRST so FOREIGN KEY constraint is met
         insertRecurrenceRule(fullRule);
+        // 2. Insert task referencing the existing rule
+        insertTask(taskData);
       } else {
         insertTask(taskData);
       }
@@ -309,35 +387,68 @@ export function TaskForm({
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets={true}
       >
-        {/* Title Input */}
+        {/* Large Confident Title Input */}
         <TextInput
           value={title}
           onChangeText={setTitle}
-          placeholder="Task title"
-          placeholderTextColor={colors.textMuted}
-          style={[styles.titleInput, { color: colors.text, borderColor: colors.border }]}
+          placeholder="What do you want to accomplish?"
+          placeholderTextColor={colors.textTertiary}
+          style={[
+            styles.titleInput,
+            {
+              color: colors.textPrimary,
+              borderBottomColor: colors.borderSubtle,
+            },
+          ]}
         />
 
         {/* Notes Input */}
         <TextInput
           value={notes}
           onChangeText={setNotes}
-          placeholder="Add notes or description..."
-          placeholderTextColor={colors.textMuted}
+          placeholder="Add notes, location, or details..."
+          placeholderTextColor={colors.textTertiary}
           multiline
           numberOfLines={3}
-          style={[styles.notesInput, { color: colors.text, borderColor: colors.border }]}
+          style={[
+            styles.notesInput,
+            {
+              color: colors.textPrimary,
+              borderBottomColor: colors.borderSubtle,
+            },
+          ]}
         />
 
+        {/* Quick Date Chips */}
+        <View style={styles.quickDatesSection}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.quickDatesRow}
+          >
+            {quickDates.map((qd) => {
+              const active = date === qd.value;
+              return (
+                <Chip
+                  key={qd.label}
+                  label={qd.label}
+                  selected={active}
+                  onPress={() => setDate(qd.value)}
+                  size="sm"
+                  style={styles.quickDateChip}
+                />
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* Date & Time block */}
-        <Card style={styles.sectionCard}>
-          <ThemedText variant="bodyMedium" style={styles.sectionTitle}>
-            Schedule
-          </ThemedText>
+        <Card style={styles.sectionCard} elevated>
+          <SectionHeader title="Schedule" icon="calendar-outline" />
 
           {/* Date row */}
           <View style={styles.scheduleRow}>
-            <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+            <Ionicons name="calendar-outline" size={18} color={colors.accent} />
             <ThemedText variant="body" style={{ marginLeft: Spacing.sm, flex: 1 }}>
               Date
             </ThemedText>
@@ -345,31 +456,34 @@ export function TaskForm({
               value={date}
               onChangeText={setDate}
               placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={colors.textTertiary}
               style={[
                 styles.timeInput,
-                { color: colors.text, backgroundColor: colors.surfaceVariant },
+                {
+                  color: colors.textPrimary,
+                  backgroundColor: colors.surfaceVariant,
+                },
               ]}
             />
           </View>
 
           {/* All day toggle */}
           <View style={[styles.scheduleRow, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.sm, paddingTop: Spacing.sm }]}>
-            <Ionicons name="sunny-outline" size={20} color={colors.warning} />
+            <Ionicons name="sunny-outline" size={18} color={colors.warning} />
             <ThemedText variant="body" style={{ marginLeft: Spacing.sm, flex: 1 }}>
               All Day
             </ThemedText>
             <Switch
               value={allDay}
               onValueChange={setAllDay}
-              trackColor={{ false: colors.border, true: colors.primary }}
+              trackColor={{ false: colors.border, true: colors.accent }}
             />
           </View>
 
           {/* Times */}
           {!allDay && (
             <View style={[styles.scheduleRow, { borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: Spacing.sm, paddingTop: Spacing.sm }]}>
-              <Ionicons name="time-outline" size={20} color={colors.primary} />
+              <Ionicons name="time-outline" size={18} color={colors.accent} />
               <ThemedText variant="body" style={{ marginLeft: Spacing.sm, flex: 1 }}>
                 Time Range
               </ThemedText>
@@ -377,23 +491,31 @@ export function TaskForm({
                 value={startTime}
                 onChangeText={setStartTime}
                 placeholder="09:00"
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={colors.textTertiary}
                 style={[
                   styles.timeInput,
-                  { color: colors.text, backgroundColor: colors.surfaceVariant, width: 68 },
+                  {
+                    color: colors.textPrimary,
+                    backgroundColor: colors.surfaceVariant,
+                    width: 72,
+                  },
                 ]}
               />
-              <ThemedText variant="caption" secondary style={{ marginHorizontal: 4 }}>
+              <ThemedText variant="caption" secondary style={{ marginHorizontal: 6 }}>
                 to
               </ThemedText>
               <TextInput
                 value={endTime}
                 onChangeText={setEndTime}
                 placeholder="10:00"
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={colors.textTertiary}
                 style={[
                   styles.timeInput,
-                  { color: colors.text, backgroundColor: colors.surfaceVariant, width: 68 },
+                  {
+                    color: colors.textPrimary,
+                    backgroundColor: colors.surfaceVariant,
+                    width: 72,
+                  },
                 ]}
               />
             </View>
@@ -401,76 +523,53 @@ export function TaskForm({
         </Card>
 
         {/* Category Picker */}
-        <Card style={styles.sectionCard}>
-          <ThemedText variant="bodyMedium" style={styles.sectionTitle}>
-            Category
-          </ThemedText>
+        <Card style={styles.sectionCard} elevated>
+          <SectionHeader title="Category" icon="pricetag-outline" />
           <View style={styles.categoryWrap}>
             {categories.map((cat) => {
               const selected = categoryId === cat.id;
               return (
-                <Pressable
+                <Chip
                   key={cat.id}
+                  label={cat.name}
+                  selected={selected}
+                  color={cat.color}
+                  icon={
+                    <Ionicons
+                      name={(cat.icon as any) || 'pricetag'}
+                      size={14}
+                      color={selected ? '#FFFFFF' : cat.color}
+                    />
+                  }
                   onPress={() => setCategoryId(cat.id)}
-                  style={[
-                    styles.categoryPill,
-                    {
-                      backgroundColor: selected ? cat.color : colors.surfaceVariant,
-                      borderColor: selected ? cat.color : colors.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={(cat.icon as any) || 'pricetag'}
-                    size={14}
-                    color={selected ? '#FFFFFF' : cat.color}
-                  />
-                  <ThemedText
-                    variant="caption"
-                    style={{
-                      color: selected ? '#FFFFFF' : colors.text,
-                      fontWeight: selected ? '700' : '500',
-                      marginLeft: 4,
-                    }}
-                  >
-                    {cat.name}
-                  </ThemedText>
-                </Pressable>
+                />
               );
             })}
           </View>
         </Card>
 
         {/* Priority Selector */}
-        <Card style={styles.sectionCard}>
-          <ThemedText variant="bodyMedium" style={styles.sectionTitle}>
-            Priority
-          </ThemedText>
+        <Card style={styles.sectionCard} elevated>
+          <SectionHeader title="Priority" icon="flag-outline" />
           <View style={styles.priorityRow}>
             {PRIORITIES.map((p) => {
               const selected = priority === p.value;
               return (
-                <Pressable
+                <Chip
                   key={p.value}
+                  label={p.label}
+                  selected={selected}
+                  color={p.color}
+                  icon={
+                    <Ionicons
+                      name="flag"
+                      size={13}
+                      color={selected ? '#FFFFFF' : p.color}
+                    />
+                  }
                   onPress={() => setPriority(p.value)}
-                  style={[
-                    styles.priorityPill,
-                    {
-                      backgroundColor: selected ? p.color : colors.surfaceVariant,
-                      borderColor: selected ? p.color : colors.border,
-                    },
-                  ]}
-                >
-                  <ThemedText
-                    variant="caption"
-                    style={{
-                      color: selected ? '#FFFFFF' : colors.text,
-                      fontWeight: selected ? '700' : '500',
-                    }}
-                  >
-                    {p.label}
-                  </ThemedText>
-                </Pressable>
+                  style={{ flex: 1 }}
+                />
               );
             })}
           </View>
@@ -484,11 +583,11 @@ export function TaskForm({
         />
 
         {/* Subtasks Checklist */}
-        <Card style={styles.sectionCard}>
+        <Card style={styles.sectionCard} elevated>
           <View style={styles.subtaskHeaderRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ionicons name="list-outline" size={18} color={colors.primary} />
-              <ThemedText variant="bodyMedium" style={styles.sectionTitle}>
+              <Ionicons name="list-outline" size={18} color={colors.accent} />
+              <ThemedText variant="subheading" style={styles.sectionTitle}>
                 Subtasks
               </ThemedText>
             </View>
@@ -498,12 +597,12 @@ export function TaskForm({
                 color={
                   subtasks.every((s) => s.completed)
                     ? colors.success
-                    : colors.primary
+                    : colors.accent
                 }
                 backgroundColor={
                   subtasks.every((s) => s.completed)
-                    ? colors.successLight
-                    : colors.primaryLight
+                    ? colors.successSoft
+                    : colors.accentSoft
                 }
                 icon={
                   <Ionicons
@@ -516,7 +615,7 @@ export function TaskForm({
                     color={
                       subtasks.every((s) => s.completed)
                         ? colors.success
-                        : colors.primary
+                        : colors.accent
                     }
                   />
                 }
@@ -536,7 +635,9 @@ export function TaskForm({
                     : colors.surface,
                   borderColor: st.completed
                     ? colors.success + '40'
-                    : colors.border,
+                    : isDark
+                    ? colors.border
+                    : colors.borderSubtle,
                 },
               ]}
             >
@@ -575,7 +676,7 @@ export function TaskForm({
                 hitSlop={10}
                 style={styles.subtaskDeleteBtn}
               >
-                <Ionicons name="trash-outline" size={16} color={colors.textMuted} />
+                <Ionicons name="trash-outline" size={16} color={colors.textTertiary} />
               </Pressable>
             </View>
           ))}
@@ -587,7 +688,7 @@ export function TaskForm({
               value={newSubtaskTitle}
               onChangeText={setNewSubtaskTitle}
               placeholder="Add a subtask..."
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={colors.textTertiary}
               returnKeyType="done"
               onSubmitEditing={addSubtask}
               onFocus={() => {
@@ -598,9 +699,9 @@ export function TaskForm({
               style={[
                 styles.subtaskInput,
                 {
-                  color: colors.text,
+                  color: colors.textPrimary,
                   backgroundColor: colors.surfaceVariant,
-                  borderColor: colors.border,
+                  borderColor: colors.borderSubtle,
                 },
               ]}
             />
@@ -615,41 +716,25 @@ export function TaskForm({
         </Card>
 
         {/* Reminders Selection */}
-        <Card style={styles.sectionCard}>
-          <ThemedText variant="bodyMedium" style={styles.sectionTitle}>
-            Reminders
-          </ThemedText>
+        <Card style={styles.sectionCard} elevated>
+          <SectionHeader title="Reminders" icon="notifications-outline" />
           <View style={styles.remindersWrap}>
             {REMINDER_OPTIONS.map((opt) => {
               const active = reminders.includes(opt.value);
               return (
-                <Pressable
+                <Chip
                   key={opt.value}
+                  label={opt.label}
+                  selected={active}
                   onPress={() => toggleReminder(opt.value)}
-                  style={[
-                    styles.reminderPill,
-                    {
-                      backgroundColor: active ? colors.primary : colors.surfaceVariant,
-                      borderColor: active ? colors.primary : colors.border,
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={active ? 'notifications' : 'notifications-outline'}
-                    size={14}
-                    color={active ? '#FFFFFF' : colors.text}
-                  />
-                  <ThemedText
-                    variant="caption"
-                    style={{
-                      color: active ? '#FFFFFF' : colors.text,
-                      fontWeight: active ? '700' : '500',
-                      marginLeft: 4,
-                    }}
-                  >
-                    {opt.label}
-                  </ThemedText>
-                </Pressable>
+                  icon={
+                    <Ionicons
+                      name={active ? 'notifications' : 'notifications-outline'}
+                      size={13}
+                      color={active ? '#FFFFFF' : colors.textSecondary}
+                    />
+                  }
+                />
               );
             })}
           </View>
@@ -669,7 +754,7 @@ export function TaskForm({
             <Button
               title="Delete"
               onPress={handleDelete}
-              variant="danger"
+              variant="destructive"
               size="lg"
               style={{ marginLeft: Spacing.md }}
             />
@@ -696,40 +781,48 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: Spacing.lg,
+    padding: Spacing.base,
     paddingBottom: 220,
   },
   titleInput: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.xs,
   },
   notesInput: {
-    fontSize: 14,
+    fontSize: 15,
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
-    marginBottom: Spacing.lg,
-    minHeight: 60,
+    marginBottom: Spacing.md,
+    minHeight: 52,
+  },
+  quickDatesSection: {
+    marginBottom: Spacing.md,
+  },
+  quickDatesRow: {
+    gap: Spacing.xs,
+  },
+  quickDateChip: {
+    marginRight: 6,
   },
   sectionCard: {
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
+    padding: Spacing.base,
+    marginBottom: Spacing.base,
   },
   sectionTitle: {
     fontWeight: '700',
-    marginBottom: Spacing.sm,
   },
   scheduleRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   timeInput: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: BorderRadius.sm,
-    fontSize: 13,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: BorderRadius.md,
+    fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -738,24 +831,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: Spacing.xs,
   },
-  categoryPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-  },
   priorityRow: {
     flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  priorityPill: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    borderWidth: 1,
+    gap: Spacing.xs,
   },
   subtaskHeaderRow: {
     flexDirection: 'row',
@@ -798,7 +876,7 @@ const styles = StyleSheet.create({
   },
   subtaskInput: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 12,
     borderRadius: BorderRadius.md,
     fontSize: 14,
@@ -808,14 +886,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.xs,
-  },
-  reminderPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
   },
   actionsContainer: {
     flexDirection: 'row',
