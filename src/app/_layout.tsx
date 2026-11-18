@@ -1,18 +1,138 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { AppState, AppStateStatus, Appearance, StyleSheet, View } from 'react-native';
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { initDatabase } from '@/db/database';
+import { useThemeStore } from '@/store/useThemeStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import { useCategoryStore } from '@/store/useCategoryStore';
+import { useTaskStore } from '@/store/useTaskStore';
+import { trackInstall, trackLastActive } from '@/services/appTracking';
+import {
+  initNotifications,
+  resyncNotificationSchedule,
+  setupNotificationListeners,
+} from '@/services/notifications';
+import { UndoSnackbar } from '@/components/ui';
+import { OnboardingModal } from '@/components/OnboardingModal';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
-SplashScreen.preventAutoHideAsync();
+export default function RootLayout() {
+  const [isReady, setIsReady] = useState(false);
+  const isDark = useThemeStore((s) => s.isDark);
+  const colors = useThemeStore((s) => s.colors);
+  const initTheme = useThemeStore((s) => s.initTheme);
+  const setSystemScheme = useThemeStore((s) => s.setSystemScheme);
+  const loadSettings = useSettingsStore((s) => s.loadSettings);
+  const loadCategories = useCategoryStore((s) => s.loadCategories);
+  const userName = useSettingsStore((s) => s.settings.user_name);
+  const isSettingsLoaded = useSettingsStore((s) => s.isLoaded);
+  const triggerRefresh = useTaskStore((s) => s.triggerRefresh);
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  useEffect(() => {
+    async function initialize() {
+      try {
+        // 1. Initialize SQLite schema & defaults
+        initDatabase();
+
+        // 2. Initialize settings, theme & categories
+        loadSettings();
+        initTheme();
+        loadCategories();
+
+        // 3. Initialize notifications & schedule
+        await initNotifications();
+        await resyncNotificationSchedule();
+
+        // 4. Track initial installation (non-blocking, fails silently offline)
+        trackInstall().catch(() => {});
+        trackLastActive().catch(() => {});
+      } catch (e) {
+        console.error('[RootLayout] Init error:', e);
+      } finally {
+        setIsReady(true);
+        SplashScreen.hideAsync().catch(() => {});
+      }
+    }
+
+    initialize();
+  }, [loadSettings, initTheme, loadCategories]);
+
+  // Setup notification response listeners (action buttons & taps)
+  useEffect(() => {
+    const cleanup = setupNotificationListeners(triggerRefresh);
+    return () => {
+      cleanup();
+    };
+  }, [triggerRefresh]);
+
+  // AppState listener for tracking foreground transitions and resyncing notification schedule
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        trackLastActive().catch(() => {});
+        resyncNotificationSchedule().catch(() => {});
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  // System appearance listener
+  useEffect(() => {
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      setSystemScheme(colorScheme);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [setSystemScheme]);
+
+  if (!isReady) {
+    return <View style={[styles.container, { backgroundColor: colors.background }]} />;
+  }
+
+  const showOnboarding = isReady && isSettingsLoaded && !userName.trim();
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <GestureHandlerRootView style={styles.container}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="task/new"
+          options={{
+            presentation: 'modal',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="task/[id]"
+          options={{
+            presentation: 'card',
+            headerShown: false,
+          }}
+        />
+      </Stack>
+      <UndoSnackbar />
+      <OnboardingModal visible={showOnboarding} />
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+});
